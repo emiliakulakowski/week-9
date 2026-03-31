@@ -9,8 +9,8 @@ const keys = {};
 function init() {
     // Scene setup
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0a0a0f);
-    scene.fog = new THREE.FogExp2(0x0a0a0f, 0.008);
+    scene.background = new THREE.Color(0x1a1a2e);
+    scene.fog = new THREE.FogExp2(0x1a1a2e, 0.005);
 
     // Camera setup
     camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -24,6 +24,7 @@ function init() {
 
     // Create environment
     createInfiniteGround();
+    createForest();
     createDoors();
     createLighting();
     createDustParticles();
@@ -59,6 +60,122 @@ function createInfiniteGround() {
     ground.position.y = 0;
     ground.receiveShadow = true;
     scene.add(ground);
+}
+
+function createForest() {
+    // Define door positions to avoid
+    const doorPositions = [
+        { x: -60, z: -150 },
+        { x: 0, z: -150 },
+        { x: 60, z: -150 }
+    ];
+    const doorExclusionRadius = 80;
+    
+    // Helper function to check if a position is too close to any door
+    const isTooCloseToaDoor = (x, z) => {
+        return doorPositions.some(door => {
+            const distance = Math.sqrt((x - door.x) ** 2 + (z - door.z) ** 2);
+            return distance < doorExclusionRadius;
+        });
+    };
+    
+    // Create a dense forest surrounding the scene with giant trees at multiple distances
+    
+    // Inner ring - close to spawn point
+    const innerTreeCount = 30;
+    const innerRadius = 50;
+    for (let i = 0; i < innerTreeCount; i++) {
+        const angle = (i / innerTreeCount) * Math.PI * 2;
+        const randomRadius = innerRadius + Math.random() * 30;
+        const x = Math.cos(angle) * randomRadius;
+        const z = Math.sin(angle) * randomRadius;
+        // Skip trees too close to doors
+        if (!isTooCloseToaDoor(x, z)) {
+            const treeScale = 1.2 + Math.random() * 0.8;
+            createTree({ x, z }, treeScale);
+        }
+    }
+    
+    // Middle ring
+    const middleTreeCount = 40;
+    const middleRadius = 120;
+    for (let i = 0; i < middleTreeCount; i++) {
+        const angle = (i / middleTreeCount) * Math.PI * 2;
+        const randomRadius = middleRadius + Math.random() * 50;
+        const x = Math.cos(angle) * randomRadius;
+        const z = Math.sin(angle) * randomRadius;
+        // Skip trees too close to doors
+        if (!isTooCloseToaDoor(x, z)) {
+            const treeScale = 1.5 + Math.random() * 1.0;
+            createTree({ x, z }, treeScale);
+        }
+    }
+    
+    // Outer ring - far away
+    const outerTreeCount = 50;
+    const outerRadius = 250;
+    for (let i = 0; i < outerTreeCount; i++) {
+        const angle = (i / outerTreeCount) * Math.PI * 2;
+        const randomRadius = outerRadius + Math.random() * 100;
+        const x = Math.cos(angle) * randomRadius;
+        const z = Math.sin(angle) * randomRadius;
+        // Skip trees too close to doors
+        if (!isTooCloseToaDoor(x, z)) {
+            const treeScale = 1.6 + Math.random() * 1.2;
+            createTree({ x, z }, treeScale);
+        }
+    }
+}
+
+function createTree(position, scale) {
+    const group = new THREE.Group();
+    
+    // Tree trunk (tall cylinder)
+    const trunkGeometry = new THREE.CylinderGeometry(6 * scale, 8 * scale, 80 * scale, 8);
+    const trunkMaterial = new THREE.MeshStandardMaterial({
+        color: 0x3d2817,
+        roughness: 0.9,
+        metalness: 0.0
+    });
+    const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+    trunk.position.y = 40 * scale;
+    trunk.castShadow = true;
+    trunk.receiveShadow = true;
+    group.add(trunk);
+    
+    // Tree foliage (multiple cones stacked)
+    const foliageMaterial = new THREE.MeshStandardMaterial({
+        color: 0x1a3d1a,
+        roughness: 0.8,
+        metalness: 0.0
+    });
+    
+    // Large main foliage cone
+    const foliageGeometry1 = new THREE.ConeGeometry(50 * scale, 60 * scale, 16);
+    const foliage1 = new THREE.Mesh(foliageGeometry1, foliageMaterial);
+    foliage1.position.y = 90 * scale;
+    foliage1.castShadow = true;
+    foliage1.receiveShadow = true;
+    group.add(foliage1);
+    
+    // Middle foliage cone
+    const foliageGeometry2 = new THREE.ConeGeometry(40 * scale, 50 * scale, 16);
+    const foliage2 = new THREE.Mesh(foliageGeometry2, foliageMaterial);
+    foliage2.position.y = 115 * scale;
+    foliage2.castShadow = true;
+    foliage2.receiveShadow = true;
+    group.add(foliage2);
+    
+    // Top foliage cone
+    const foliageGeometry3 = new THREE.ConeGeometry(30 * scale, 40 * scale, 16);
+    const foliage3 = new THREE.Mesh(foliageGeometry3, foliageMaterial);
+    foliage3.position.y = 135 * scale;
+    foliage3.castShadow = true;
+    foliage3.receiveShadow = true;
+    group.add(foliage3);
+    
+    group.position.set(position.x, 0, position.z);
+    scene.add(group);
 }
 
 function createDoors() {
@@ -183,8 +300,8 @@ function createDoor(position, color) {
 }
 
 function createLighting() {
-    // Minimal ambient light for mystery
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.1);
+    // Ambient light for visibility
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.35);
     scene.add(ambientLight);
 
     // Ominous spotlights on doors

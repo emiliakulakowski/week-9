@@ -451,7 +451,9 @@ function createDoor(position, color) {
     const frameMaterial = new THREE.MeshStandardMaterial({
         color: 0x1a1a1a,
         roughness: 0.7,
-        metalness: 0.2
+        metalness: 0.2,
+        emissive: new THREE.Color(color.r, color.g, color.b),
+        emissiveIntensity: 0.25
     });
 
     // Door body
@@ -522,23 +524,23 @@ function createDoor(position, color) {
     const spotColor = new THREE.Color(color.r, color.g, color.b);
     
     // Left top spotlight
-    const leftSpotlight = new THREE.SpotLight(spotColor, 0.8);
+    const leftSpotlight = new THREE.SpotLight(spotColor, 3);
     leftSpotlight.position.set(-5, 12, 5);
     leftSpotlight.target.position.set(-2, 0, 0);
-    leftSpotlight.angle = Math.PI / 1.8;
-    leftSpotlight.penumbra = 0.9;
-    leftSpotlight.decay = 0.3;
+    leftSpotlight.angle = Math.PI / 8;
+    leftSpotlight.penumbra = 0.5;
+    leftSpotlight.decay = 2.5;
     leftSpotlight.castShadow = true;
     group.add(leftSpotlight);
     group.add(leftSpotlight.target);
 
     // Right top spotlight
-    const rightSpotlight = new THREE.SpotLight(spotColor, 0.8);
+    const rightSpotlight = new THREE.SpotLight(spotColor, 3);
     rightSpotlight.position.set(5, 12, 5);
     rightSpotlight.target.position.set(2, 0, 0);
-    rightSpotlight.angle = Math.PI / 1.8;
-    rightSpotlight.penumbra = 0.9;
-    rightSpotlight.decay = 0.3;
+    rightSpotlight.angle = Math.PI / 8;
+    rightSpotlight.penumbra = 0.5;
+    rightSpotlight.decay = 2.5;
     rightSpotlight.castShadow = true;
     group.add(rightSpotlight);
     group.add(rightSpotlight.target);
@@ -549,8 +551,12 @@ function createDoor(position, color) {
 
 function createLighting() {
     // Ambient light for visibility
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.35);
-    scene.add(ambientLight);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.03);
+   scene.add(ambientLight);
+
+//    const fillLight = new THREE.PointLight(lightColors[index], 0.6, 30);
+//    fillLight.position.set(pos.x, 10, pos.z + 5);
+//    scene.add(fillLight);
 
     // Ominous spotlights on doors
     const spotlightPositions = [
@@ -567,11 +573,13 @@ function createLighting() {
 
     spotlightPositions.forEach((pos, index) => {
         const spotlight = new THREE.SpotLight(lightColors[index], 2);
-        spotlight.position.set(pos.x, 100, pos.z - 80);
+        spotlight.position.set(pos.x, 40, pos.z - 20);
         spotlight.target.position.set(pos.x, 15, pos.z);
-        spotlight.angle = Math.PI / 5;
-        spotlight.penumbra = 0.8;
-        spotlight.decay = 2;
+        spotlight.angle = Math.PI / 12;
+        spotlight.penumbra = 0.2;
+       spotlight.distance = 100;         // shorter reach
+       spotlight.decay = 2;              // realistic falloff
+       spotlight.intensity = 2.5;        // brighter, but controlled
         spotlight.castShadow = true;
         spotlight.shadow.mapSize.width = 2048;
         spotlight.shadow.mapSize.height = 2048;
@@ -587,7 +595,7 @@ function createLighting() {
     ];
 
     pointLightPositions.forEach((pos, index) => {
-        const pointLight = new THREE.PointLight(lightColors[index], 0.8, 200);
+        const pointLight = new THREE.PointLight(lightColors[index], 0.3, 60);
         pointLight.position.set(pos.x, 30, pos.z);
         scene.add(pointLight);
     });

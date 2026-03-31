@@ -23,20 +23,38 @@
             border-radius: 5px;
             z-index: 10;
         }
+        #p5-container {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            width: 200px;
+            height: 150px;
+            border: 2px solid #fff;
+            z-index: 100;
+        }
     </style>
 </head>
 
 <body>
     <div id="info">
         <h3>Mysterious Doors</h3>
-        <p><strong>Look around:</strong> Hand position controls view direction</p>
-        <p><strong>Move forward:</strong> Quick hand gesture toward camera</p>
-        <p><strong>Move backward:</strong> Quick hand gesture away from camera</p>
-        <p><strong>Move left:</strong> Quick hand gesture to the left</p>
-        <p><strong>Move right:</strong> Quick hand gesture to the right</p>
-        <p><em>Momentum keeps you moving until next gesture</em></p>
+        <p id="status" style="color: #ffff00;">Loading...</p>
+        <p><strong>Hand close to camera:</strong> Walk forward</p>
+        <p><strong>Hand far from camera:</strong> Walk backward</p>
+        <p><strong>Hand on left side:</strong> Turn left</p>
+        <p><strong>Hand on right side:</strong> Turn right</p>
+        <p><strong>No hand detected:</strong> Stay still</p>
     </div>
-    <script src="week9.js" type="module"></script>
+    <div id="p5-container">
+        <video id="webcam-video" style="position: absolute; width: 100%; height: 100%; display: none;"></video>
+        <canvas id="hand-overlay" style="position: absolute; width: 100%; height: 100%;"></canvas>
+    </div>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="week9.js"></script>
 </body>
 
 </html>

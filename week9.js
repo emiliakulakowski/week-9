@@ -1,21 +1,145 @@
-import * as THREE from 'https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.1/three.module.min.js';
-
+// THREE.js is now loaded globally via script tag
 let camera, scene, renderer;
 let yaw = 0, pitch = 0;
 
 // Hand tracking variables
-let handDetector;
-let videoElement;
+let hands = [];
+let lastFewHands = []; // Smoothing buffer
 let handX = 0.5, handY = 0.5; // Normalized hand position (0-1)
-let handDepth = 0.5; // Hand depth (0 = far/backward, 1 = close/forward)
-let prevHandX = 0.5; // Previous hand X for gesture detection
-let prevHandDepth = 0.5; // Previous hand depth for gesture detection
+let handDepth = 0.5; // Hand depth from z3D
+let handDetected = false; // Whether a hand is currently detected
 
-// Movement velocity for momentum
-let velocityX = 0; // Left/right movement velocity
-let velocityZ = 0; // Forward/backward movement velocity
-const moveSpeed = 0.5;
-const friction = 0.05; // How quickly velocity decays
+// Initialize hand tracking with MediaPipe
+function initializeHandTracking() {
+    const statusEl = document.getElementById('status');
+    const video = document.getElementById('webcam-video');
+    const overlayCanvas = document.getElementById('hand-overlay');
+    
+    statusEl.textContent = 'Requesting webcam access...';
+
+    navigator.mediaDevices.getUserMedia({ 
+        video: { width: { ideal: 640 }, height: { ideal: 480 } }, 
+        audio: false 
+    })
+    .then(stream => {
+        video.srcObject = stream;
+        video.play();
+        statusEl.textContent = 'Webcam ready. Loading hand detection model...';
+        initMediaPipe(video, overlayCanvas);
+    })
+    .catch(err => {
+        console.error('Webcam access denied:', err);
+        statusEl.textContent = 'Error: Webcam access denied';
+        statusEl.style.color = '#ff0000';
+    });
+}
+
+function initMediaPipe(video, overlayCanvas) {
+    const mediapipeHands = new Hands({
+        locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+        }
+    });
+
+    mediapipeHands.setOptions({
+        maxNumHands: 2,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.7,
+        minTrackingConfidence: 0.5
+    });
+
+    mediapipeHands.onResults((results) => onHandResults(results, overlayCanvas));
+
+    const camera = new Camera(video, {
+        onFrame: async () => {
+            await mediapipeHands.send({ image: video });
+        },
+        width: 640,
+        height: 480
+    });
+    
+    camera.start();
+    
+    const statusEl = document.getElementById('status');
+    statusEl.textContent = 'Ready! Show your hand to the camera.';
+    statusEl.style.color = '#00ff00';
+    console.log('MediaPipe hands initialized');
+}
+
+function onHandResults(results, overlayCanvas) {
+    overlayCanvas.width = overlayCanvas.offsetWidth;
+    overlayCanvas.height = overlayCanvas.offsetHeight;
+    const ctx = overlayCanvas.getContext('2d');
+    ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+    hands = results.multiHandLandmarks || [];
+
+    if (hands.length === 0) {
+        handDetected = false;
+        handX = 0.5;
+        handY = 0.5;
+        handDepth = 0.5;
+        return;
+    }
+
+    // Analyze first hand for movement
+    const landmarks = hands[0];
+    if (landmarks) {
+        drawHandOverlay(landmarks, ctx, overlayCanvas.width, overlayCanvas.height);
+        analyzeHandPosition(landmarks);
+    }
+}
+
+function drawHandOverlay(landmarks, ctx, w, h) {
+    const connections = [
+        [0,1],[1,2],[2,3],[3,4],
+        [0,5],[5,6],[6,7],[7,8],
+        [5,9],[9,10],[10,11],[11,12],
+        [9,13],[13,14],[14,15],[15,16],
+        [13,17],[17,18],[18,19],[19,20],[0,17]
+    ];
+
+    ctx.strokeStyle = 'rgba(100,200,255,0.6)';
+    ctx.lineWidth = 2;
+    connections.forEach(([a, b]) => {
+        ctx.beginPath();
+        ctx.moveTo(landmarks[a].x * w, landmarks[a].y * h);
+        ctx.lineTo(landmarks[b].x * w, landmarks[b].y * h);
+        ctx.stroke();
+    });
+
+    landmarks.forEach((lm, i) => {
+        ctx.beginPath();
+        ctx.arc(lm.x * w, lm.y * h, i === 0 ? 5 : 3, 0, Math.PI * 2);
+        ctx.fillStyle = i === 0 ? 'rgba(255,200,100,0.9)' : 'rgba(100,220,255,0.85)';
+        ctx.fill();
+    });
+}
+
+function analyzeHandPosition(landmarks) {
+    // Get index finger tip (landmark 8)
+    const indexTip = landmarks[8];
+    
+    // Normalize hand position to 0-1 (video is 640x480)
+    let x = indexTip.x;  // Already normalized to 0-1
+    let y = indexTip.y;  // Already normalized to 0-1
+    
+    // Use z for depth
+    let z = indexTip.z || 0;
+    
+    // MediaPipe z uses a small range (typically -0.2 to 0.2)
+    // Amplify by 5x to get meaningful movement, then shift to 0-1 range
+    // where 0 = far (backward), 0.5 = neutral, 1 = close (forward)
+    let depth = Math.max(0, Math.min(1, 0.5 - z * 5));
+    
+    console.log('Raw z:', z.toFixed(3), '| Amplified depth:', depth.toFixed(3), '| handDepth smoothed:', handDepth.toFixed(3));
+    
+    // Apply smoothing
+    const mouseData = { x, y, z: depth };
+    updateHandSmoothing(mouseData);
+    
+    handDetected = true;
+}
 
 // Initialize scene
 function init() {
@@ -51,163 +175,125 @@ function init() {
     animate();
 }
 
-async function initializeHandTracking() {
-    // Create video element for webcam first
-    videoElement = document.createElement('video');
-    videoElement.style.position = 'fixed';
-    videoElement.style.bottom = '10px';
-    videoElement.style.right = '10px';
-    videoElement.style.width = '200px';
-    videoElement.style.height = '150px';
-    videoElement.style.border = '2px solid #fff';
-    videoElement.style.zIndex = '100';
-    videoElement.style.transform = 'scaleX(-1)';
-    document.body.appendChild(videoElement);
+function gotHands(results) {
+    hands = results;
     
-    // Request webcam access immediately (this shows the permission popup)
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-            video: { width: { ideal: 1280 }, height: { ideal: 720 } } 
-        });
-        videoElement.srcObject = stream;
-        videoElement.play();
-        
-        // Start hand detection loop
-        detectHands();
-    } catch (err) {
-        console.error('Webcam access denied:', err);
-        console.log('Hand tracking unavailable - using mouse fallback');
-    }
-}
-
-async function detectHands() {
-    if (!videoElement || videoElement.videoWidth === 0) {
-        requestAnimationFrame(detectHands);
+    if (!hands || hands.length === 0) {
+        handDetected = false;
+        handX = 0.5;
+        handY = 0.5;
+        handDepth = 0.5;
         return;
     }
     
-    try {
-        // Use a simpler approach: directly analyze video frames
-        const canvas = document.createElement('canvas');
-        canvas.width = videoElement.videoWidth;
-        canvas.height = videoElement.videoHeight;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(videoElement, 0, 0);
-        
-        // Simple hand detection: look for skin-colored blobs
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const data = imageData.data;
-        
-        let sumX = 0, sumY = 0, count = 0;
-        
-        // Detect skin-like pixels (simple RGB-based detection)
-        for (let i = 0; i < data.length; i += 4) {
-            const r = data[i];
-            const g = data[i + 1];
-            const b = data[i + 2];
-            
-            // Simple skin detection: reddish pixels
-            if (r > 95 && g > 40 && b > 20 && 
-                r > g && r > b && 
-                Math.abs(r - g) > 15) {
-                const pixelIndex = i / 4;
-                sumX += pixelIndex % canvas.width;
-                sumY += Math.floor(pixelIndex / canvas.width);
-                count++;
-            }
-        }
-        
-        // Calculate normalized hand position and depth
-        if (count > 100) {
-            handX = (sumX / count) / canvas.width;
-            handY = (sumY / count) / canvas.height;
-            // Clamp values
-            handX = Math.max(0, Math.min(1, handX));
-            handY = Math.max(0, Math.min(1, handY));
-            
-            // Calculate hand depth based on blob size
-            // More pixels = closer to camera (larger hand blob)
-            // Normalize based on expected pixel count range
-            const maxPixels = canvas.width * canvas.height * 0.3; // Max ~30% of screen
-            const minPixels = 500; // Min ~500 pixels to be detectable
-            handDepth = Math.max(0, Math.min(1, (count - minPixels) / (maxPixels - minPixels)));
-        }
-    } catch (err) {
-        console.error('Hand detection error:', err);
+    const hand = hands[0];
+    
+    if (!hand.keypoints || hand.keypoints.length < 9) {
+        handDetected = false;
+        return;
     }
     
-    requestAnimationFrame(detectHands);
+    // Get index finger tip (keypoint 8)
+    const indexTip = hand.keypoints[8];
+    
+    if (!indexTip || indexTip.x === undefined || indexTip.y === undefined) {
+        handDetected = false;
+        return;
+    }
+    
+    // Normalize hand position to 0-1
+    let x = indexTip.x / 200;  // p5 canvas is 200px wide
+    let y = indexTip.y / 150;  // p5 canvas is 150px tall
+    
+    // Clamp to valid range
+    x = Math.max(0, Math.min(1, x));
+    y = Math.max(0, Math.min(1, y));
+    
+    // Use z for depth
+    let z = indexTip.z || 0;
+    // Normalize depth: negative z = closer, more positive = farther
+    // z typically ranges from -0.5 (close) to 0.5 (far)
+    let depth = Math.max(0, Math.min(1, 0.5 - z));  // invert so close = 1, far = 0
+    
+    console.log('Hand detected at x:', x.toFixed(2), 'y:', y.toFixed(2), 'depth:', depth.toFixed(2));
+    
+    // Apply smoothing
+    const mouseData = { x, y, z: depth };
+    updateHandSmoothing(mouseData);
+    
+    handDetected = true;
+}
+
+function updateHandSmoothing(mouse) {
+    // Average last few hand positions for smoothness
+    lastFewHands.push(mouse);
+    if (lastFewHands.length > 5) {
+        lastFewHands.shift(); // Remove oldest
+    }
+    
+    let xTotal = 0, yTotal = 0, zTotal = 0;
+    for (let i = 0; i < lastFewHands.length; i++) {
+        xTotal += lastFewHands[i].x;
+        yTotal += lastFewHands[i].y;
+        zTotal += lastFewHands[i].z;
+    }
+    
+    handX = xTotal / lastFewHands.length;
+    handY = yTotal / lastFewHands.length;
+    handDepth = zTotal / lastFewHands.length;
 }
 
 function updateCameraFromHand() {
-    // Map hand position to camera rotation and movement
+    // ABSOLUTE REQUIREMENT: If no hand detected, ZERO movement
+    if (!handDetected) {
+        return; // Completely stop any movement
+    }
+    
+    // Direct position-based movement and rotation
     // handX: 0 = left, 0.5 = center, 1 = right
+    // handDepth: 0 = far (backward), 0.5 = neutral, 1 = close (forward)
     
-    // Horizontal rotation (yaw) based on hand X position
-    const targetYaw = (handX - 0.5) * Math.PI * 1.5; // Range: -0.75π to 0.75π
-    yaw += (targetYaw - yaw) * 0.1; // Smooth interpolation
+    const slowMoveSpeed = 0.2; // Slow movement speed
     
-    // No vertical rotation - hand Y doesn't control pitch
-    // Clamp pitch to prevent flipping
-    pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch));
+    // Turning based on hand X position
+    // Hand at left = turn sharp left, hand at right = turn sharp right
+    const targetYaw = (handX - 0.5) * Math.PI * 2; // Range: -π to π
+    yaw += (targetYaw - yaw) * 0.15; // Smooth rotation
     
-    // Update camera rotation using Euler angles
+    // Update camera rotation
     camera.rotation.order = 'YXZ';
     camera.rotation.y = yaw;
-    camera.rotation.x = pitch;
+    camera.rotation.x = pitch; // Keep pitch at 0
     
-    // GESTURE-BASED MOVEMENT with momentum
-    // Detect hand movement gestures
-    const handXDelta = handX - prevHandX; // Positive = moving right, negative = moving left
-    const handDepthDelta = handDepth - prevHandDepth; // Positive = moving closer/forward, negative = moving away/backward
+    // Forward/backward movement based on hand depth
+    // Close to camera (depth 1) = move forward
+    // Far from camera (depth 0) = move backward
+    // Neutral (depth 0.5) = don't move forward/backward
     
-    // Threshold for detecting intentional gestures (ignore tiny movements)
-    const gestureThreshold = 0.05;
+    // Calculate movement intensity: close=positive (forward), far=negative (backward)
+    const depthDifference = handDepth - 0.5; // Range: -0.5 to 0.5
+    const forwardIntensity = depthDifference * 2; // Scale to -1 to 1
     
-    // Horizontal movement (left/right strafe)
-    if (Math.abs(handXDelta) > gestureThreshold) {
-        if (handXDelta > 0) {
-            // Hand moved right - strafe right
-            velocityX = moveSpeed;
-        } else {
-            // Hand moved left - strafe left
-            velocityX = -moveSpeed;
-        }
+    // Debug log only when there's significant movement
+    if (Math.abs(forwardIntensity) > 0.01) {
+        console.log('MOVING - handX:', handX.toFixed(2), 'handDepth:', handDepth.toFixed(2), 'intensity:', forwardIntensity.toFixed(2));
     }
     
-    // Forward/backward movement
-    if (Math.abs(handDepthDelta) > gestureThreshold) {
-        if (handDepthDelta > 0) {
-            // Hand moved closer/forward
-            velocityZ = -moveSpeed; // Negative Z is forward
-        } else {
-            // Hand moved away/backward
-            velocityZ = moveSpeed; // Positive Z is backward
-        }
-    }
+    // Create movement vector (negative Z is forward in THREE.js camera coords)
+    const moveDirection = new THREE.Vector3(
+        0,
+        0,
+        -forwardIntensity * slowMoveSpeed
+    );
     
-    // Apply momentum with gradual friction decay
-    // This allows smooth movement even when hand returns to neutral
-    const moveDirection = new THREE.Vector3(velocityX, 0, velocityZ);
+    // Apply yaw rotation to movement direction so player moves in the direction they're facing
     moveDirection.applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
     camera.position.add(moveDirection);
-    
-    // Apply friction to slowly stop momentum
-    velocityX *= (1 - friction);
-    velocityZ *= (1 - friction);
-    
-    // Stop nearly-zero velocities completely
-    if (Math.abs(velocityX) < 0.01) velocityX = 0;
-    if (Math.abs(velocityZ) < 0.01) velocityZ = 0;
     
     // Keep camera above ground
     if (camera.position.y < 1) {
         camera.position.y = 1;
     }
-    
-    // Update previous position for next frame
-    prevHandX = handX;
-    prevHandDepth = handDepth;
 }
 
 function createInfiniteGround() {
@@ -436,7 +522,7 @@ function createDoor(position, color) {
     const spotColor = new THREE.Color(color.r, color.g, color.b);
     
     // Left top spotlight
-    const leftSpotlight = new THREE.SpotLight(spotColor, 12);
+    const leftSpotlight = new THREE.SpotLight(spotColor, 0.8);
     leftSpotlight.position.set(-5, 12, 5);
     leftSpotlight.target.position.set(-2, 0, 0);
     leftSpotlight.angle = Math.PI / 1.8;
@@ -447,7 +533,7 @@ function createDoor(position, color) {
     group.add(leftSpotlight.target);
 
     // Right top spotlight
-    const rightSpotlight = new THREE.SpotLight(spotColor, 12);
+    const rightSpotlight = new THREE.SpotLight(spotColor, 0.8);
     rightSpotlight.position.set(5, 12, 5);
     rightSpotlight.target.position.set(2, 0, 0);
     rightSpotlight.angle = Math.PI / 1.8;

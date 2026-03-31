@@ -1,9 +1,21 @@
 import * as THREE from 'https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.1/three.module.min.js';
 
 let camera, scene, renderer;
-let mouseX = 0, mouseY = 0;
 let yaw = 0, pitch = 0;
-const keys = {};
+
+// Hand tracking variables
+let handDetector;
+let videoElement;
+let handX = 0.5, handY = 0.5; // Normalized hand position (0-1)
+let handDepth = 0.5; // Hand depth (0 = far/backward, 1 = close/forward)
+let prevHandX = 0.5; // Previous hand X for gesture detection
+let prevHandDepth = 0.5; // Previous hand depth for gesture detection
+
+// Movement velocity for momentum
+let velocityX = 0; // Left/right movement velocity
+let velocityZ = 0; // Forward/backward movement velocity
+const moveSpeed = 0.5;
+const friction = 0.05; // How quickly velocity decays
 
 // Initialize scene
 function init() {
@@ -30,22 +42,172 @@ function init() {
     createDustParticles();
 
     // Event listeners
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('click', () => {
-        document.body.requestPointerLock = document.body.requestPointerLock || document.body.mozRequestPointerLock;
-        document.body.requestPointerLock();
-    });
-    document.addEventListener('mousemove', updateCamera);
-    window.addEventListener('keydown', (e) => {
-        keys[e.key.toLowerCase()] = true;
-    });
-    window.addEventListener('keyup', (e) => {
-        keys[e.key.toLowerCase()] = false;
-    });
     window.addEventListener('resize', onWindowResize);
+
+    // Initialize hand tracking
+    initializeHandTracking();
 
     // Start animation loop
     animate();
+}
+
+async function initializeHandTracking() {
+    // Create video element for webcam first
+    videoElement = document.createElement('video');
+    videoElement.style.position = 'fixed';
+    videoElement.style.bottom = '10px';
+    videoElement.style.right = '10px';
+    videoElement.style.width = '200px';
+    videoElement.style.height = '150px';
+    videoElement.style.border = '2px solid #fff';
+    videoElement.style.zIndex = '100';
+    videoElement.style.transform = 'scaleX(-1)';
+    document.body.appendChild(videoElement);
+    
+    // Request webcam access immediately (this shows the permission popup)
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { width: { ideal: 1280 }, height: { ideal: 720 } } 
+        });
+        videoElement.srcObject = stream;
+        videoElement.play();
+        
+        // Start hand detection loop
+        detectHands();
+    } catch (err) {
+        console.error('Webcam access denied:', err);
+        console.log('Hand tracking unavailable - using mouse fallback');
+    }
+}
+
+async function detectHands() {
+    if (!videoElement || videoElement.videoWidth === 0) {
+        requestAnimationFrame(detectHands);
+        return;
+    }
+    
+    try {
+        // Use a simpler approach: directly analyze video frames
+        const canvas = document.createElement('canvas');
+        canvas.width = videoElement.videoWidth;
+        canvas.height = videoElement.videoHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(videoElement, 0, 0);
+        
+        // Simple hand detection: look for skin-colored blobs
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imageData.data;
+        
+        let sumX = 0, sumY = 0, count = 0;
+        
+        // Detect skin-like pixels (simple RGB-based detection)
+        for (let i = 0; i < data.length; i += 4) {
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+            
+            // Simple skin detection: reddish pixels
+            if (r > 95 && g > 40 && b > 20 && 
+                r > g && r > b && 
+                Math.abs(r - g) > 15) {
+                const pixelIndex = i / 4;
+                sumX += pixelIndex % canvas.width;
+                sumY += Math.floor(pixelIndex / canvas.width);
+                count++;
+            }
+        }
+        
+        // Calculate normalized hand position and depth
+        if (count > 100) {
+            handX = (sumX / count) / canvas.width;
+            handY = (sumY / count) / canvas.height;
+            // Clamp values
+            handX = Math.max(0, Math.min(1, handX));
+            handY = Math.max(0, Math.min(1, handY));
+            
+            // Calculate hand depth based on blob size
+            // More pixels = closer to camera (larger hand blob)
+            // Normalize based on expected pixel count range
+            const maxPixels = canvas.width * canvas.height * 0.3; // Max ~30% of screen
+            const minPixels = 500; // Min ~500 pixels to be detectable
+            handDepth = Math.max(0, Math.min(1, (count - minPixels) / (maxPixels - minPixels)));
+        }
+    } catch (err) {
+        console.error('Hand detection error:', err);
+    }
+    
+    requestAnimationFrame(detectHands);
+}
+
+function updateCameraFromHand() {
+    // Map hand position to camera rotation and movement
+    // handX: 0 = left, 0.5 = center, 1 = right
+    
+    // Horizontal rotation (yaw) based on hand X position
+    const targetYaw = (handX - 0.5) * Math.PI * 1.5; // Range: -0.75π to 0.75π
+    yaw += (targetYaw - yaw) * 0.1; // Smooth interpolation
+    
+    // No vertical rotation - hand Y doesn't control pitch
+    // Clamp pitch to prevent flipping
+    pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch));
+    
+    // Update camera rotation using Euler angles
+    camera.rotation.order = 'YXZ';
+    camera.rotation.y = yaw;
+    camera.rotation.x = pitch;
+    
+    // GESTURE-BASED MOVEMENT with momentum
+    // Detect hand movement gestures
+    const handXDelta = handX - prevHandX; // Positive = moving right, negative = moving left
+    const handDepthDelta = handDepth - prevHandDepth; // Positive = moving closer/forward, negative = moving away/backward
+    
+    // Threshold for detecting intentional gestures (ignore tiny movements)
+    const gestureThreshold = 0.05;
+    
+    // Horizontal movement (left/right strafe)
+    if (Math.abs(handXDelta) > gestureThreshold) {
+        if (handXDelta > 0) {
+            // Hand moved right - strafe right
+            velocityX = moveSpeed;
+        } else {
+            // Hand moved left - strafe left
+            velocityX = -moveSpeed;
+        }
+    }
+    
+    // Forward/backward movement
+    if (Math.abs(handDepthDelta) > gestureThreshold) {
+        if (handDepthDelta > 0) {
+            // Hand moved closer/forward
+            velocityZ = -moveSpeed; // Negative Z is forward
+        } else {
+            // Hand moved away/backward
+            velocityZ = moveSpeed; // Positive Z is backward
+        }
+    }
+    
+    // Apply momentum with gradual friction decay
+    // This allows smooth movement even when hand returns to neutral
+    const moveDirection = new THREE.Vector3(velocityX, 0, velocityZ);
+    moveDirection.applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+    camera.position.add(moveDirection);
+    
+    // Apply friction to slowly stop momentum
+    velocityX *= (1 - friction);
+    velocityZ *= (1 - friction);
+    
+    // Stop nearly-zero velocities completely
+    if (Math.abs(velocityX) < 0.01) velocityX = 0;
+    if (Math.abs(velocityZ) < 0.01) velocityZ = 0;
+    
+    // Keep camera above ground
+    if (camera.position.y < 1) {
+        camera.position.y = 1;
+    }
+    
+    // Update previous position for next frame
+    prevHandX = handX;
+    prevHandDepth = handDepth;
 }
 
 function createInfiniteGround() {
@@ -345,11 +507,6 @@ function createLighting() {
     });
 }
 
-function onMouseMove(event) {
-    mouseX = event.clientX;
-    mouseY = event.clientY;
-}
-
 function createDustParticles() {
     // Create dust particle geometry
     const dustGeometry = new THREE.BufferGeometry();
@@ -397,31 +554,8 @@ function updateCamera(event) {
 function animate() {
     requestAnimationFrame(animate);
 
-    // Handle movement
-    const moveSpeed = 0.3;
-    const moveDirection = new THREE.Vector3();
-
-    if (keys['w']) {
-        moveDirection.z -= moveSpeed;
-    }
-    if (keys['s']) {
-        moveDirection.z += moveSpeed;
-    }
-    if (keys['a']) {
-        moveDirection.x -= moveSpeed;
-    }
-    if (keys['d']) {
-        moveDirection.x += moveSpeed;
-    }
-
-    // Apply rotation to movement direction
-    moveDirection.applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
-    camera.position.add(moveDirection);
-
-    // Keep camera above ground
-    if (camera.position.y < 1) {
-        camera.position.y = 1;
-    }
+    // Update camera from hand tracking (includes movement)
+    updateCameraFromHand();
 
     renderer.render(scene, camera);
 }

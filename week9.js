@@ -162,7 +162,7 @@ function init() {
 
     // Camera setup
     camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(0, 3.5, 0);
+    camera.position.set(0, 3.5, 80);
 
     flashlight = new THREE.SpotLight(0xffffff, 0);
     flashlight.angle = Math.PI / 5;
@@ -204,6 +204,17 @@ function init() {
 
     // Start animation loop
     animate();
+
+    const startupOverlay = document.getElementById('startup-overlay');
+    const infoDiv = document.getElementById('info');
+
+   // Initially hide the instructions
+     infoDiv.style.display = 'none';
+
+    startupOverlay.addEventListener('click', () => {
+    startupOverlay.style.display = 'none';
+    infoDiv.style.display = 'block';
+     });
 }
 
 function isFist(landmarks) {

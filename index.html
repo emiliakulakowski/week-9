@@ -8,21 +8,40 @@
         body {
             margin: 0;
             overflow: hidden;
-            font-family: Arial, sans-serif;
+            font-family: garamond, serif;
         }
         canvas {
             display: block;
         }
         #info {
             position: absolute;
-            top: 10px;
-            left: 10px;
-            color: #fff;
-            background: rgba(0, 0, 0, 0.7);
-            padding: 15px;
-            border-radius: 5px;
+           top: 16px;
+           left: 16px;
+
+            padding: 10px 12px;
+            max-width: 240px;
+
+            background: rgba(0, 0, 0, 0.35); /* lighter + more transparent */
+           border-radius: 10px;
+
+           color: rgba(255, 255, 255, 0.75); /* softer white */
+
+           font-size: 13px; /* smaller text */
+          line-height: 1.35;
+
+          backdrop-filter: blur(6px); /* subtle glass effect */
+          -webkit-backdrop-filter: blur(6px);
+
             z-index: 10;
+            transition: opacity 0.5s ease;
         }
+        #info:hover {
+         opacity: 1;
+           }
+
+          #info:not(:hover) {
+           opacity: 0.6;
+            }
         #p5-container {
             position: fixed;
             bottom: 10px;
@@ -31,19 +50,60 @@
             height: 150px;
             border: 2px solid #fff;
             z-index: 100;
+              
         }
+        #info p {
+         margin: 10px 0;
+          opacity: 0.85;
+          }
+        #info strong {
+       font-weight: 500; /* lighter than default bold */
+       color: rgba(255, 255, 255, 0.9);
+         } 
+         #startup-overlay {
+          position: fixed;
+         top: 0;
+          left: 0;
+         width: 100%;
+         height: 100%;
+         background: rgba(0,0,0,0.95);
+         display: flex;
+         flex-direction: column;
+          justify-content: center;
+         align-items: center;
+        color: #fff;
+        z-index: 9999;
+        cursor: pointer;
+       }
+
+     #startup-text {
+       font-size: 2em;
+        text-align: center;
+        margin-bottom: 20px;
+         max-width: 80%;
+       }
+
+      #click-to-continue {
+    font-size: 1.2em;
+    text-align: center;
+    opacity: 0.7;
+      }
     </style>
 </head>
 
 <body>
+    <div id="startup-overlay">
+    <div id="startup-text">There are secrets hidden within the forest</div>
+    <div id="click-to-continue">Click to continue</div>
+    </div>
     <div id="info">
-        <h3>Mysterious Doors</h3>
-        <p id="status" style="color: #ffff00;">Loading...</p>
+        <p id="status" style="color: #78b3f1;">Loading...</p>
         <p><strong>Hand close to camera:</strong> Walk forward</p>
         <p><strong>Hand facing up:</strong> Walk backward</p>
         <p><strong>Hand on left side:</strong> Turn left</p>
         <p><strong>Hand on right side:</strong> Turn right</p>
         <p><strong>No hand detected:</strong> Stay still</p>
+        <p><strong>Make a fist:</strong> Toggle flashlight</p>
     </div>
     <div id="p5-container">
         <video id="webcam-video" style="position: absolute; width: 100%; height: 100%; display: none;"></video>

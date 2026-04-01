@@ -311,6 +311,24 @@ function createInfiniteGround() {
 }
 
 function createForest() {
+    const spawnTreeCount = 20;
+    const spawnRadius = 20; // close to player
+
+   for (let i = 0; i < spawnTreeCount; i++) {
+    const angle = (i / spawnTreeCount) * Math.PI * 2;
+    
+    // Add randomness so it feels natural
+    const radius = spawnRadius + (Math.random() * 8 - 4);
+    
+    const x = Math.cos(angle) * radius;
+    const z = Math.sin(angle) * radius;
+    
+    // Slight gaps so player isn't trapped
+    if (Math.random() > 0.15) {
+        const scale = 1.2 + Math.random() * 0.6;
+        createTree({ x, z }, scale);
+    }
+   }
     // Define door positions to avoid
     const doorPositions = [
         { x: -60, z: -150 },
@@ -453,7 +471,7 @@ function createDoor(position, color) {
         roughness: 0.7,
         metalness: 0.2,
         emissive: new THREE.Color(color.r, color.g, color.b),
-        emissiveIntensity: 0.25
+        emissiveIntensity: 1
     });
 
     // Door body

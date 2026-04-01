@@ -1,6 +1,8 @@
 // THREE.js is now loaded globally via script tag
 let camera, scene, renderer;
 let yaw = 0, pitch = 0;
+let flashlight;
+let flashlightOn = false;
 
 // Hand tracking variables
 let hands = [];
@@ -88,6 +90,16 @@ function onHandResults(results, overlayCanvas) {
         drawHandOverlay(landmarks, ctx, overlayCanvas.width, overlayCanvas.height);
         analyzeHandPosition(landmarks);
     }
+    const fist = isFist(landmarks);
+
+    if (fist && !flashlightOn) {
+    flashlight.intensity = 3; // turn ON
+    flashlightOn = true;
+    } 
+   else if (!fist && flashlightOn) {
+    flashlight.intensity = 0; // turn OFF
+    flashlightOn = false;
+   }
 }
 
 function drawHandOverlay(landmarks, ctx, w, h) {
@@ -152,6 +164,25 @@ function init() {
     camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
     camera.position.set(0, 3.5, 0);
 
+    flashlight = new THREE.SpotLight(0xffffff, 0);
+    flashlight.angle = Math.PI / 5;
+    flashlight.penumbra = 0.5;
+   flashlight.decay = 2;
+   flashlight.distance = 150;
+   flashlight.castShadow = true;
+
+   // Position it slightly in front of camera
+   flashlight.position.set(0,0, 0);
+
+   // Target straight ahead
+   flashlight.target.position.set(0, 0, -1);
+
+   // Attach to camera so it follows view
+   camera.add(flashlight);
+   camera.add(flashlight.target);
+
+   scene.add(camera);
+
     // Renderer setup
     renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -173,6 +204,29 @@ function init() {
 
     // Start animation loop
     animate();
+}
+
+function isFist(landmarks) {
+    // Fingertips
+    const tips = [8, 12, 16, 20];
+    
+    // Knuckles (PIP joints)
+    const pips = [6, 10, 14, 18];
+
+    let curledFingers = 0;
+
+    for (let i = 0; i < tips.length; i++) {
+        const tip = landmarks[tips[i]];
+        const pip = landmarks[pips[i]];
+
+        // If fingertip is below knuckle → finger is curled
+        if (tip.y > pip.y) {
+            curledFingers++;
+        }
+    }
+
+    // If most fingers are curled → fist
+    return curledFingers >= 3;
 }
 
 function gotHands(results) {
